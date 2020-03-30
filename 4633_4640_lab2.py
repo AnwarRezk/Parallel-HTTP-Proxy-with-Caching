@@ -221,7 +221,13 @@ def parse_http_request(source_addr, http_raw_data):
         path_name = url #relative address
     else:
         url = url.split("/")
-        host_name = url[0]
+        host_info = url[0]
+        host_info = host_info.split(":")
+        hot_name = host_info[0]
+        if host_info[1]:
+            port_num = host_info[1] #Extracted port number
+        else:
+            port_num = 80 #Default
         path_name = "/".join(url[1:])
 
     version = req_line[2]
