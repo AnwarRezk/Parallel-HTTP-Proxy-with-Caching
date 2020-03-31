@@ -225,7 +225,7 @@ def parse_http_request(source_addr, http_raw_data):
         host_info = host_info.split(":")
         hot_name = host_info[0]
         if host_info[1]:
-            port_num = host_info[1] #Extracted port number
+            port_num = int(host_info[1]) #Extracted port number
         else:
             port_num = 80 #Default
         path_name = "/".join(url[1:])
@@ -268,7 +268,7 @@ def check_http_request_validity(http_raw_data) -> HttpRequestState:
         return HttpRequestState.INVALID_INPUT
     
     methods = ['POST','HEAD','PUT','DELETE','OPTIONS','TRACE'] #Availabale methods
-    if req_line[0] != 'GET': #Bad Request
+    if req_line[0] != 'GET': 
         if req_line[0] in methods:
             return HttpRequestState.NOT_IMPLEMENTED
         else:
