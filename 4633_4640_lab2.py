@@ -233,19 +233,18 @@ def parse_http_request(source_addr, http_raw_data):
     version = req_line[2]
 
     #Headers
-    headers = {} 
+    headers = [] #Represented as list of lists
     for h in parsed_req[1:]: 
         k,v = h.split(':') #split each line by http field name and value
-        headers[k] = v
+        if k == 'Host':
+            v = v.split(":") #check for port_num
+            v = v[0]
+            if v[1]: #extracted port num
+                port_num = v[1]
+            else:
+                port_num = 80 #Default HTTP port
+        headers.append([k,v])
     
-    if headers["HOSTNAME"]:
-        host_info = headers["HOSTNAME"].split(":")
-        host_name = host_info[0]
-        if host_info[1]:
-            port_num = int(host_info[1])
-        else:
-            port_num = 80 #Default HTTP port
-
     print("*" * 50)
     print("[parse_http_request] Implement me!")
     print("*" * 50)
