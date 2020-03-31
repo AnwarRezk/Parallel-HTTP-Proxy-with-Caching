@@ -238,11 +238,11 @@ def parse_http_request(source_addr, http_raw_data):
         k,v = h.split(':') #split each line by http field name and value
         if k == 'Host':
             v = v.split(":") #check for port_num
-            v = v[0]
             if v[1]: #extracted port num
                 port_num = v[1]
             else:
                 port_num = 80 #Default HTTP port
+            v = v[0]
         headers.append([k,v])
     
     print("*" * 50)
