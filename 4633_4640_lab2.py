@@ -249,7 +249,7 @@ def parse_http_request(source_addr, http_raw_data):
     print("[parse_http_request] Implement me!")
     print("*" * 50)
     # Replace this line with the correct values.
-    ret = HttpRequestInfo(source_addr,method, host_name, path_name, version, headers)
+    ret = HttpRequestInfo(source_addr,method, host_name, path_name, version,port_num, headers)
     return ret
 
 
