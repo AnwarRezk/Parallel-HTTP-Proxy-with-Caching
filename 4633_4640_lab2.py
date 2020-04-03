@@ -100,7 +100,7 @@ class HttpErrorResponse(object):
 
     def to_http_string(self):
         """ Same as above """
-        pass
+        return "HTTP/1.0 {} {}\r\n".format(self.code, self.message)
 
     def to_byte_array(self, http_string):
         """
@@ -121,9 +121,7 @@ class HttpRequestState(enum.Enum):
     """
     INVALID_INPUT = 0
     NOT_SUPPORTED = 1
-    NOT_IMPLEMENTED = 4
     GOOD = 2
-    BAD = 3
     PLACEHOLDER = -1
 
 
@@ -136,12 +134,26 @@ def entry_point(proxy_port_number):
     inside it.
     """
 
-    setup_sockets(proxy_port_number)
+    proxysock = setup_sockets(proxy_port_number)
     while True:
-        pass
-    print("*" * 50)
-    print("[entry_point] Implement me!")
-    print("*" * 50)
+        try:
+            clientsock, clientaddr = proxysock.accept()
+            print(f"Connection between {clientaddr} has been established")
+            http_request_msg = ''
+            while True:
+                msg = clientsock.recv(1024)
+                if len(msg) <= 2:
+                    break
+                http_request_msg += msg.decode("utf-8")
+            response = http_request_pipeline(clientaddr, http_request_msg)
+            if isinstance(response, HttpErrorResponse):
+                clientsock.send(response.to_byte_array(response.to_http_string()))
+            else:
+                pass
+            clientsock.close()
+        except:
+            clientsock.close()
+            pass
     return None
 
 
@@ -155,16 +167,13 @@ def setup_sockets(proxy_port_number):
     Feel free to delete this function.
     """
     print("Starting HTTP proxy on port:", proxy_port_number)
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    s.bind(('127.0.0.1',proxy_port_number))
-    s.listen(12)
+    proxysock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    proxysock.bind(('127.0.0.1', proxy_port_number))
+    proxysock.listen(12)
     # when calling socket.listen() pass a number
     # that's larger than 10 to avoid rejecting
     # connections automatically.
-    print("*" * 50)
-    print("[setup_sockets] Implement me!")
-    print("*" * 50)
-    return None
+    return proxysock
 
 
 def do_socket_logic():
@@ -196,12 +205,14 @@ def http_request_pipeline(source_addr, http_raw_data):
     # Parse HTTP request
     validity = check_http_request_validity(http_raw_data)
     # Return error if needed, then:
+    if validity == HttpRequestState.INVALID_INPUT:
+        return HttpErrorResponse("400", "Bad Request")
+    elif validity == HttpRequestState.NOT_SUPPORTED:
+        return HttpErrorResponse("501", "Method Not Implemented")
     # parse_http_request()
+    
     # sanitize_http_request()
     # Validate, sanitize, return Http object.
-    print("*" * 50)
-    print("[http_request_pipeline] Implement me!")
-    print("*" * 50)
     return None
 
 
@@ -260,29 +271,47 @@ def check_http_request_validity(http_raw_data) -> HttpRequestState:
     returns:
     One of values in HttpRequestState
     """
-    parsed_req = http_raw_data.split("\r\n")
+    req_line, *headers_and_body = http_raw_data.split("\r\n")
+    headers = {}
+    for i in range(len(headers_and_body)):
+        if headers_and_body[i] == '':
+            break
+        headers[headers_and_body[i][:headers_and_body[i].find(':')]] = headers_and_body[i][headers_and_body[i].find(' ') + 1:]
+    body = headers_and_body[i:]
     
-    req_line = parsed_req[0].split(" ")
-    if len(req_line) != 3: #Missing one of the fields 
+    req_line = req_line.split()
+    if len(req_line) != 3: # Missing one of the fields 
         return HttpRequestState.INVALID_INPUT
     
-    methods = ['POST','HEAD','PUT','DELETE','OPTIONS','TRACE'] #Availabale methods
+    import re
+    hostregex = re.compile(r'\A((http:\/\/){0,1}(w{3}\.){0,1}(?!w*\.)(?!http:\/\/))'
+                           r'((?=[a-z0-9-]{1,63}\.)(xn--)?[a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,63}'
+                           r'(?::\d+)?'
+                           r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    
+    if req_line[1][0] == '/': # Check for the Host header in headers dictionary
+        if 'Host' not in headers:
+            return HttpRequestState.INVALID_INPUT
+        host = headers['Host']
+        
+    else:
+        host = req_line[1]
+    
+    if re.match(hostregex, host) is None:
+        return HttpRequestState.INVALID_INPUT
+    
+    methods = ['POST','HEAD','PUT','DELETE','OPTIONS','TRACE'] # Availabale methods
     if req_line[0] != 'GET': 
         if req_line[0] in methods:
-            return HttpRequestState.NOT_IMPLEMENTED
+            return HttpRequestState.NOT_SUPPORTED
         else:
-            return HttpRequestState.BAD
+            return HttpRequestState.INVALID_INPUT
 
-    version = req_line[2] #Extract version number
-    if version != 'HTTP/1.0' or version != 'HTTP/1.1':
-        return HttpRequestState.NOT_SUPPORTED
+    version = req_line[2] # Extract version number
+    if re.match(r"\A(HTTP/)\d+\.\d+$", version) is None:
+        return HttpRequestState.INVALID_INPUT
     
-    
-    print("*" * 50)
-    print("[check_http_request_validity] Implement me!")
-    print("*" * 50)
-    return HttpRequestState.GOOD #Valid Request
-    #return HttpRequestState.PLACEHOLDER (for example)
+    return HttpRequestState.GOOD # Valid Request
 
 
 def sanitize_http_request(request_info: HttpRequestInfo):
