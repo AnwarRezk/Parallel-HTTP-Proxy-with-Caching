@@ -68,7 +68,7 @@ class HttpRequestInfo(object):
         keeping it as a string in this stage is to ease
         debugging and testing.
         """
-        host = ":".join([self.requested_host,self.requested_port])
+        host = ":".join([self.requested_host,str(self.requested_port)])
         url = "/".join([host ,self.requested_path])
         req_line = " ".join([self.method, url, "HTTP/1.0"])
         stringified = [": ".join([k, v]) for (k, v) in self.headers] #Header : Value
