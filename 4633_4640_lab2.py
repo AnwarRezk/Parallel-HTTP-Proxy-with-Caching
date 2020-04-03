@@ -68,11 +68,17 @@ class HttpRequestInfo(object):
         keeping it as a string in this stage is to ease
         debugging and testing.
         """
+        host = ":".join([self.requested_host,self.requested_port])
+        url = "/".join([host ,self.requested_path])
+        req_line = " ".join([self.method, url, "HTTP/1.0"])
+        stringified = [": ".join([k, v]) for (k, v) in self.headers] #Header : Value
+        stringified.insert(0, req_line) #insert request line at first place to maintain format
+        http_string = "\r\n".join(stringified) + "\r\n"
 
         print("*" * 50)
         print("[to_http_string] Implement me!")
         print("*" * 50)
-        return None
+        return http_string
 
     def to_byte_array(self, http_string):
         """
