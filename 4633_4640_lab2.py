@@ -4,7 +4,7 @@ import os
 import enum
 import socket
 import struct
-
+import asyncio
 
 class HttpRequestInfo(object):
     """
@@ -125,6 +125,8 @@ class HttpRequestState(enum.Enum):
     GOOD = 2
     PLACEHOLDER = -1
 
+    CACHE = {}
+
 
 def entry_point(proxy_port_number):
     """
@@ -143,13 +145,16 @@ def entry_point(proxy_port_number):
             print(f"Connection between {clientaddr} has been established")
             http_request_msg = ''
             while True:
-                msg = clientsock.recv(1024)
+                msg = clientsock.recv(1024) #Receive Request
                 if len(msg) <= 2:
                     break
                 http_request_msg += msg.decode("utf-8")
-            result = http_request_pipeline(clientaddr, http_request_msg)
+            result = http_request_pipeline(clientaddr, http_request_msg) #Forming in correct format
             if isinstance(result, HttpErrorResponse):
                 clientsock.send(result.to_byte_array(result.to_http_string()))
+            elif result in HttpRequestState.CACHE.keys(): #check for response in cache
+                print("Sending Data to Client From Cache...")
+                clientsock.sendall(HttpRequestState.CACHE[result])
             else:
                 http_response_msg = ''
                 remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
@@ -160,6 +165,7 @@ def entry_point(proxy_port_number):
                     if len(msg) <= 0:
                         break
                     http_response_msg += msg.decode("utf-8")
+                HttpRequestState.CACHE[result] = http_response_msg #Storing in cache
                 remotesock.close()
                 clientsock.send(bytes(http_response_msg, "utf-8"))
             clientsock.close()
@@ -221,6 +227,8 @@ def http_request_pipeline(source_addr, http_raw_data):
         return HttpErrorResponse("400", "Bad Request")
     elif validity == HttpRequestState.NOT_SUPPORTED:
         return HttpErrorResponse("501", "Method Not Implemented")
+    elif validity == HttpRequestState.GOOD:
+        return HttpErrorResponse("200","OK")
     # parse_http_request()
     request = parse_http_request(source_addr, http_raw_data)
     # sanitize_http_request()
