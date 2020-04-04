@@ -68,16 +68,11 @@ class HttpRequestInfo(object):
         keeping it as a string in this stage is to ease
         debugging and testing.
         """
-        host = ":".join([self.requested_host,str(self.requested_port)])
-        url = "/".join([host ,self.requested_path])
-        req_line = " ".join([self.method, url, "HTTP/1.0"])
-        stringified = [": ".join([k, v]) for (k, v) in self.headers] #Header : Value
-        stringified.insert(0, req_line) #insert request line at first place to maintain format
-        http_string = "\r\n".join(stringified) + "\r\n"
+        req_line = " ".join([self.method, self.requested_path, "HTTP/1.0"])
+        stringified = [": ".join([k, v]) for (k, v) in self.headers] # Header: Value
+        stringified.insert(0, req_line) # Insert request line at first place to maintain format
+        http_string = "\r\n".join(stringified) + "\r\n\r\n"
 
-        print("*" * 50)
-        print("[to_http_string] Implement me!")
-        print("*" * 50)
         return http_string
 
     def to_byte_array(self, http_string):
@@ -141,6 +136,7 @@ def entry_point(proxy_port_number):
     """
 
     proxysock = setup_sockets(int(proxy_port_number))
+    remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     while True:
         try:
             clientsock, clientaddr = proxysock.accept()
@@ -151,11 +147,21 @@ def entry_point(proxy_port_number):
                 if len(msg) <= 2:
                     break
                 http_request_msg += msg.decode("utf-8")
-            response = http_request_pipeline(clientaddr, http_request_msg)
-            if isinstance(response, HttpErrorResponse):
-                clientsock.send(response.to_byte_array(response.to_http_string()))
+            result = http_request_pipeline(clientaddr, http_request_msg)
+            if isinstance(result, HttpErrorResponse):
+                clientsock.send(result.to_byte_array(result.to_http_string()))
             else:
-                pass
+                http_response_msg = ''
+                remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+                remotesock.connect((result.requested_host, result.requested_port))
+                remotesock.send(result.to_byte_array(result.to_http_string()))
+                while True:
+                    msg = remotesock.recv(1024)
+                    if len(msg) <= 0:
+                        break
+                    http_response_msg += msg.decode("utf-8")
+                remotesock.close()
+                clientsock.send(bytes(http_response_msg, "utf-8"))
             clientsock.close()
         except:
             clientsock.close()
@@ -216,11 +222,11 @@ def http_request_pipeline(source_addr, http_raw_data):
     elif validity == HttpRequestState.NOT_SUPPORTED:
         return HttpErrorResponse("501", "Method Not Implemented")
     # parse_http_request()
-    response = parse_http_request(source_addr, http_raw_data)
+    request = parse_http_request(source_addr, http_raw_data)
     # sanitize_http_request()
-    
+    sanitize_http_request(request)
     # Validate, sanitize, return Http object.
-    return None
+    return request
 
 
 def parse_http_request(source_addr, http_raw_data):
@@ -266,7 +272,7 @@ def parse_http_request(source_addr, http_raw_data):
                 port_num = int(host_info[2])
             else:
                 port_num = 80
-            path_name = "/".join(url[3:])
+            path_name = "/" + "/".join(url[3:])
         else:
             url = url.split("/")
             host_info = url[0]
@@ -276,7 +282,7 @@ def parse_http_request(source_addr, http_raw_data):
                 port_num = int(host_info[1]) # Extracted port number
             else:
                 port_num = 80 # Default
-            path_name = "/".join(url[1:])
+            path_name = "/" + "/".join(url[1:])
 
     version = req_line[2]
 
@@ -366,9 +372,8 @@ def sanitize_http_request(request_info: HttpRequestInfo):
     returns:
     nothing, but modifies the input object
     """
-    print("*" * 50)
-    print("[sanitize_http_request] Implement me!")
-    print("*" * 50)
+    # Insert host in headers
+    request_info.headers.insert(0, ['Host', request_info.requested_host + ":" + str(request_info.requested_port)])
 
 
 #######################################
