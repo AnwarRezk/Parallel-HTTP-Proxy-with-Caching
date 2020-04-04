@@ -4,7 +4,7 @@ import os
 import enum
 import socket
 import struct
-import asyncio
+import threading
 
 class HttpRequestInfo(object):
     """
@@ -125,8 +125,7 @@ class HttpRequestState(enum.Enum):
     GOOD = 2
     PLACEHOLDER = -1
 
-    CACHE = {}
-
+cache = {} # Global cache storage
 
 def entry_point(proxy_port_number):
     """
@@ -138,42 +137,45 @@ def entry_point(proxy_port_number):
     """
 
     proxysock = setup_sockets(int(proxy_port_number))
-    remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     while True:
         try:
             clientsock, clientaddr = proxysock.accept()
-            print(f"Connection between {clientaddr} has been established")
-            http_request_msg = ''
-            while True:
-                msg = clientsock.recv(1024) #Receive Request
-                if len(msg) <= 2:
-                    break
-                http_request_msg += msg.decode("utf-8")
-            result = http_request_pipeline(clientaddr, http_request_msg) #Forming in correct format
-            if isinstance(result, HttpErrorResponse):
-                clientsock.send(result.to_byte_array(result.to_http_string()))
-            elif result in HttpRequestState.CACHE.keys(): #check for response in cache
-                print("Sending Data to Client From Cache...")
-                clientsock.sendall(HttpRequestState.CACHE[result])
-            else:
-                http_response_msg = ''
-                remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-                remotesock.connect((result.requested_host, result.requested_port))
-                remotesock.send(result.to_byte_array(result.to_http_string()))
-                while True:
-                    msg = remotesock.recv(1024)
-                    if len(msg) <= 0:
-                        break
-                    http_response_msg += msg.decode("utf-8")
-                HttpRequestState.CACHE[result] = http_response_msg #Storing in cache
-                remotesock.close()
-                clientsock.send(bytes(http_response_msg, "utf-8"))
-            clientsock.close()
+            threading.Thread(target=respond_to_client, args=[clientsock, clientaddr], daemon=True).start()    
         except:
-            clientsock.close()
             pass
     return None
 
+def respond_to_client(clientsock, clientaddr):
+    try:
+        print(f"Connection between {clientaddr} has been established")
+        http_request_msg = ''
+        while True:
+            msg = clientsock.recv(1024) # Receive Request msg
+            if len(msg) <= 2:
+                break
+            http_request_msg += msg.decode("utf-8")
+        result = http_request_pipeline(clientaddr, http_request_msg) # Forming in correct format
+        if isinstance(result, HttpErrorResponse):
+            clientsock.send(result.to_byte_array(result.to_http_string()))
+        elif result.to_http_string() in cache: # check for response in cache
+            print(f"Sending data to client {clientaddr} from cache...")
+            clientsock.send(bytes(cache[result.to_http_string()], "utf-8"))
+        else:
+            http_response_msg = ''
+            remotesock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            remotesock.connect((result.requested_host, result.requested_port))
+            remotesock.send(result.to_byte_array(result.to_http_string()))
+            while True:
+                msg = remotesock.recv(1024)
+                if len(msg) <= 0:
+                    break
+                http_response_msg += msg.decode("utf-8")
+            remotesock.close()
+            cache[result.to_http_string()] = http_response_msg # Storing in cache
+            clientsock.send(bytes(http_response_msg, "utf-8"))
+        clientsock.close()
+    except:
+        clientsock.close()
 
 def setup_sockets(proxy_port_number):
     """
@@ -227,8 +229,6 @@ def http_request_pipeline(source_addr, http_raw_data):
         return HttpErrorResponse("400", "Bad Request")
     elif validity == HttpRequestState.NOT_SUPPORTED:
         return HttpErrorResponse("501", "Method Not Implemented")
-    elif validity == HttpRequestState.GOOD:
-        return HttpErrorResponse("200","OK")
     # parse_http_request()
     request = parse_http_request(source_addr, http_raw_data)
     # sanitize_http_request()
@@ -296,12 +296,17 @@ def parse_http_request(source_addr, http_raw_data):
 
     # Headers
     headers = [] # Represented as list of lists
-    for h in parsed_req[1:len(parsed_req) - 1]:
+    if parsed_req[len(parsed_req) - 1] == '':
+        end = len(parsed_req) - 1
+    if parsed_req[len(parsed_req) - 2] == '':
+        end -= 1
+    for h in parsed_req[1:end]:
         k, v = h.split(":", 1) # split each line by http field name and value
         v = v[1:]
         if k == 'Host':
-            continue
-        headers.append([k,v])
+            headers.insert(0, [k,v])
+        else:
+            headers.append([k,v])
     
     # Replace this line with the correct values.
     return HttpRequestInfo(source_addr, method, host_name, port_num, path_name, headers)
@@ -380,7 +385,16 @@ def sanitize_http_request(request_info: HttpRequestInfo):
     returns:
     nothing, but modifies the input object
     """
+    import re
+    # Put the host in the general format (domain.TLD:port) before inserting it in headers
+    if request_info.requested_host.lower().startswith("http://"):
+        request_info.requested_host = re.split("http://", request_info.requested_host, flags=re.IGNORECASE)[1]
+    if request_info.requested_host.lower().startswith("www."):
+        request_info.requested_host = re.split("www.", request_info.requested_host, flags=re.IGNORECASE)[1]
     # Insert host in headers
+    if len(request_info.headers) > 0:
+        if request_info.headers[0][0] == 'Host':
+            request_info.headers.pop(0)
     request_info.headers.insert(0, ['Host', request_info.requested_host + ":" + str(request_info.requested_port)])
 
 
