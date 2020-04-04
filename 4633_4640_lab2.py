@@ -140,7 +140,7 @@ def entry_point(proxy_port_number):
     inside it.
     """
 
-    proxysock = setup_sockets(proxy_port_number)
+    proxysock = setup_sockets(int(proxy_port_number))
     while True:
         try:
             clientsock, clientaddr = proxysock.accept()
@@ -216,8 +216,9 @@ def http_request_pipeline(source_addr, http_raw_data):
     elif validity == HttpRequestState.NOT_SUPPORTED:
         return HttpErrorResponse("501", "Method Not Implemented")
     # parse_http_request()
-    
+    response = parse_http_request(source_addr, http_raw_data)
     # sanitize_http_request()
+    
     # Validate, sanitize, return Http object.
     return None
 
@@ -227,47 +228,69 @@ def parse_http_request(source_addr, http_raw_data):
     This function parses a "valid" HTTP request into an HttpRequestInfo
     object.
     """
-    parsed_req = http_raw_data.split("\r\n") #Extract request components
+    parsed_req = http_raw_data.split("\r\n") # Extract request components
     
-    #Request line
-    req_line = parsed_req[0] 
-    req_line = http_raw_data.split(" ")
+    # Request line
+    req_line = parsed_req[0].split(" ")
     method = req_line[0]
     url = req_line[1]
     if url.startswith("/"):
-        path_name = url #relative address
+        path_name = url # relative address
+        # Get host info
+        for h in parsed_req[1:]:
+            k, v = h.split(":", 1)
+            if k == 'Host':
+                v = v[1:]
+                if v.lower().startswith("http://"):
+                    v = v.split(":")
+                    host_name = v[0] + ":" + v[1]
+                    if len(v) > 2:
+                        port_num = int(v[2])
+                    else:
+                        port_num = 80
+                else:
+                    v = v.split(":")
+                    host_name = v[0]
+                    if len(v) > 1:
+                        port_num = int(v[1])
+                    else:
+                        port_num = 80
+            break
     else:
-        url = url.split("/")
-        host_info = url[0]
-        host_info = host_info.split(":")
-        hot_name = host_info[0]
-        if host_info[1]:
-            port_num = int(host_info[1]) #Extracted port number
+        if url.lower().startswith("http://"):
+            url = url.split("/")
+            host_info = url[0] + "//" + url[2]
+            host_info = host_info.split(":")
+            host_name = host_info[0] + ":" + host_info[1]
+            if len(host_info) > 2:
+                port_num = int(host_info[2])
+            else:
+                port_num = 80
+            path_name = "/".join(url[3:])
         else:
-            port_num = 80 #Default
-        path_name = "/".join(url[1:])
+            url = url.split("/")
+            host_info = url[0]
+            host_info = host_info.split(":")
+            host_name = host_info[0]
+            if len(host_info) > 1:
+                port_num = int(host_info[1]) # Extracted port number
+            else:
+                port_num = 80 # Default
+            path_name = "/".join(url[1:])
 
     version = req_line[2]
 
-    #Headers
-    headers = [] #Represented as list of lists
-    for h in parsed_req[1:]: 
-        k,v = h.split(':') #split each line by http field name and value
+    # Headers
+    headers = [] # Represented as list of lists
+    for h in parsed_req[1:len(parsed_req) - 1]:
+        k, v = h.split(":", 1) # split each line by http field name and value
+        v = v[1:]
         if k == 'Host':
-            v = v.split(":") #check for port_num
-            if v[1]: #extracted port num
-                port_num = v[1]
-            else:
-                port_num = 80 #Default HTTP port
-            v = v[0]
+            continue
         headers.append([k,v])
     
-    print("*" * 50)
-    print("[parse_http_request] Implement me!")
-    print("*" * 50)
     # Replace this line with the correct values.
-    ret = HttpRequestInfo(source_addr,method, host_name, path_name, version,port_num, headers)
-    return ret
+    return HttpRequestInfo(source_addr, method, host_name, port_num, path_name, headers)
 
 
 def check_http_request_validity(http_raw_data) -> HttpRequestState:
@@ -279,6 +302,15 @@ def check_http_request_validity(http_raw_data) -> HttpRequestState:
     """
     req_line, *headers_and_body = http_raw_data.split("\r\n")
     headers = {}
+    
+    import re
+    # Validate headers
+    for el in headers_and_body:
+        if el == '':
+            break
+        if re.match(r"[a-zA-Z0-9]+: [a-zA-Z0-9]+", el) is None:
+            return HttpRequestState.INVALID_INPUT
+    
     for i in range(len(headers_and_body)):
         if headers_and_body[i] == '':
             break
@@ -289,7 +321,6 @@ def check_http_request_validity(http_raw_data) -> HttpRequestState:
     if len(req_line) != 3: # Missing one of the fields 
         return HttpRequestState.INVALID_INPUT
     
-    import re
     hostregex = re.compile(r'\A((http:\/\/){0,1}(w{3}\.){0,1}(?!w*\.)(?!http:\/\/))'
                            r'((?=[a-z0-9-]{1,63}\.)(xn--)?[a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,63}'
                            r'(?::\d+)?'
@@ -298,8 +329,13 @@ def check_http_request_validity(http_raw_data) -> HttpRequestState:
     if req_line[1][0] == '/': # Check for the Host header in headers dictionary
         if 'Host' not in headers:
             return HttpRequestState.INVALID_INPUT
-        host = headers['Host']
+        if headers['Host'].lower().startswith("http://"): # There is a path in the Host header which is invalid (/ after http:// if present)
+            if headers['Host'].count('/') > 2:
+                return HttpRequestState.INVALID_INPUT
+        elif '/' in headers['Host']:
+            return HttpRequestState.INVALID_INPUT
         
+        host = headers['Host']
     else:
         host = req_line[1]
     
